@@ -5,8 +5,6 @@ import tqdm
 import tensorflow as tf
 import numpy as np
 
-# https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/training/adam.py
-
 
 class SVDOptimizer:
     """Optimizer function for SVD based architectures"""
@@ -122,7 +120,7 @@ class SVDOptimizer:
 
 
 class SVDAdamOptimizer:
-    """Optimizer function for SVD based architectures"""
+    """Adam Optimizer function for SVD based architectures"""
     def __init__(self, learning_rate: float, nu: float, beta: float = 0.9, gamma: float = 0.999):
         """Initialize
 
@@ -207,7 +205,7 @@ class SVDAdamOptimizer:
                     u, s, v, w = variables[indices]
                     du, ds, dv, dw = momentum[indices]
                     lu, ls, lv, lw = velocity[indices]
-                    # Calculate adaptive rates on stieffel manifold
+                    # Calculate adaptive rates on Stieffel manifold
                     left_nu = self.nu
                     right_nu = self.nu
                     # Calculate orthogonal update
