@@ -5,7 +5,7 @@ import tensorflow as tf
 
 from os.path import join
 from numpy import concatenate, array, delete, split
-from src.layers import EncoderLayer, DecoderLayer, PositionalEncodingLayer, CAEncoderLayer, CADecoderLayer
+from src.layers import EncoderLayer, DecoderLayer, PositionalEncodingLayer
 from .utils import *
 
 
