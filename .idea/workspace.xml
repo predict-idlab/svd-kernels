@@ -2,19 +2,13 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="25d09b55-5d6f-48f5-a8f4-caac9276d06d" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/.idea/other.xml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/additional/context-aware" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/notebooks/Test_notebook.ipynb" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/svd-kernels.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/svd-kernels.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/notebooks/Optimization.ipynb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/__init__.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/bleh.zip" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/additional/context-aware" beforeDir="false" afterPath="$PROJECT_DIR$/additional/context-aware" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notebooks/MNIST.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/notebooks/MNIST.ipynb" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/notebooks/Test_notebook.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/notebooks/Test.ipynb" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/layers/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/layers/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/optimizers/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/optimizers/__init__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/sample-transformer.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/transformer_ca.ipynb" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/utils.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/models/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/models/__init__.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -68,6 +62,9 @@
       <option name="presentableId" value="Default" />
       <updated>1618666326704</updated>
       <workItem from="1618666328133" duration="10670000" />
+      <workItem from="1618903564884" duration="3269000" />
+      <workItem from="1618923874643" duration="7858000" />
+      <workItem from="1618984843118" duration="12442000" />
     </task>
     <servers />
   </component>
@@ -79,7 +76,9 @@
       <map>
         <entry key="MAIN">
           <value>
-            <State />
+            <State>
+              <option name="COLUMN_ORDER" />
+            </State>
           </value>
         </entry>
       </map>
