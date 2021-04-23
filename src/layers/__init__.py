@@ -7,7 +7,7 @@ from src.initializers import SingularValueInitializer
 
 class SVDDense(tf.keras.layers.Layer):
     """SVD based densely connected layer."""
-    def __init__(self, units: int, rank: int = None, activation: str = 'relu', use_bias: bool = True):
+    def __init__(self, units: int, rank: Optional[int] = None, activation: str = 'relu', use_bias: bool = True):
         """Initialise layer.
 
         Parameters
@@ -489,7 +489,8 @@ class LSTM(tf.keras.models.Model):
         h = self.linear_gate_r4(h)
         return self.sigmoid_hidden_out(x + h)
 
-    def __call__(self, inputs: tf.Tensor, mask, training, initial_state):
+    def __call__(self, inputs: tf.Tensor, mask: Optional[tf.Tensor] = None,
+                 training: Optional[bool] = None, initial_state: Optional[List[tf.Tensor]] = None):
         """Call layer.
 
         Parameters

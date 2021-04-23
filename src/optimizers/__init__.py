@@ -1,5 +1,5 @@
 from typing import *
-from src.models.utils import unpack, chi, assembled_gradient
+from .utils import unpack, chi, assembled_gradient
 
 import tqdm
 import tensorflow as tf
@@ -9,7 +9,7 @@ import numpy as np
 class SVDOptimizer:
     """Optimizer function for SVD based architectures"""
     def __init__(self, learning_rate: float, nu: float, beta: float = 0.9):
-        """Initialize
+        """Initialize optimizer.
 
         Parameters
         ----------
@@ -24,8 +24,9 @@ class SVDOptimizer:
         self.nu = nu
         self.beta = beta
 
-    def train(self, loss_fn, model, data, epochs: int, metrics: Optional[dict]):
-        """Train a model
+    def train(self, loss_fn: Callable, model: tf.keras.Model, epochs: int, train_data: tf.data.Dataset,
+              metrics: Optional[dict] = None, validation_data: Optional[tf.data.Dataset] = None):
+        """Train a model with optimizer.
 
         Parameters
         ----------
@@ -33,26 +34,34 @@ class SVDOptimizer:
             Loss function to optimize
         model: tf.Model
             Model to train
-        data: tf.Data.Dataset
-            Dataset to iterate
         epochs: int
             Number of epochs to train
+        train_data: tf.Data.Dataset
+            Dataset to iterate for training
+        validation_data: tf.data.Dataset
+            Dataset to iterate for validation
+            (default is None)
         metrics: Optional[dict]
-            Dictionary containing training metrics
+            Dictionary containing metrics
+            (default is None)
         Returns
         -------
         train_loss, train_metrics
         """
-        # Initialize metrics & loss
+        # Initialize training loss
         train_loss = []
-        train_metrics = {key: [] for key in metrics.keys()}
-        # Initialize momentum
+        # Initialize training metrics
+        if metrics is not None:
+            train_metrics = {key: [] for key in metrics.keys()}
+            # Validation metrics if validation data is given
+            if validation_data is not None:
+                validation_metrics = {key: [] for key in metrics.keys()}
         # Iterate epochs
         for epoch in range(epochs):
             # Initialize epoch loss
             epoch_loss = []
             # Iterate over data
-            progress_bar = tqdm.tqdm_notebook(data)
+            progress_bar = tqdm.tqdm_notebook(train_data)
             for batch, (inputs, targets) in enumerate(progress_bar):
                 # Make padding masks
                 with tf.GradientTape() as tape:
@@ -77,8 +86,6 @@ class SVDOptimizer:
 
                 # Indices of svd variables
                 slices = [slice(idx, idx + 4) for idx, name in enumerate(names) if ('cadense' in name) & ('U' in name)]
-                length = range(len(variables))
-                svd_indices = [idx for indices in slices for idx in length[indices]]
                 # Calculate SVD variables per layer
                 for indices in slices:
                     # Get gradients and variables for components
@@ -87,6 +94,8 @@ class SVDOptimizer:
                     # Calculate orthogonal update
                     chi_u = chi(u, du, self.nu)
                     chi_v = chi(v, dv, self.nu)
+                    # Calculate update on curve
+                    # y = phi(x) @ x
                     u_update = u + chi_u @ u
                     v_update = v + chi_v @ v
                     # Calculate assembled gradient
@@ -110,19 +119,33 @@ class SVDOptimizer:
 
                 # Update remainder
                 for idx, (dv, v) in enumerate(zip(momentum, model.trainable_variables)):
-                    if idx not in svd_indices:
+                    if idx not in [idx for indices in slices for idx in range(len(variables))[indices]]:
                         v.assign_sub(self.learning_rate * dv)
                 # Add batch loss
                 train_loss.append(np.mean(loss))
-                for key, metric in metrics.items():
-                    train_metrics[key].append(metric(predictions, targets))
-        return train_loss, train_metrics
+
+            # # Add metrics
+            # if metrics is not None:
+            #     # Add train metrics
+            #     for key, metric in metrics.items():
+            #         train_metrics[key].append(metric(predictions, targets))
+            #     # Add validation metrics
+            #     if validation_data is not None:
+            #         progress_bar = tqdm.tqdm_notebook(validation_data)
+            #         for batch, (inputs, targets) in enumerate(progress_bar):
+            #             predictions = model(inputs)
+            #             for key, metric in metrics.items():
+            #                 validation_metrics[key].append(metric(predictions, targets))
+        # Outputs
+        outputs = [model, train_loss, train_metrics] if metrics is not None else [model, train_loss]
+        # Return outputs
+        return outputs
 
 
 class SVDAdamOptimizer:
     """Adam Optimizer function for SVD based architectures"""
     def __init__(self, learning_rate: float, nu: float, beta: float = 0.9, gamma: float = 0.999):
-        """Initialize
+        """Initialize optimizer
 
         Parameters
         ----------
@@ -197,20 +220,27 @@ class SVDAdamOptimizer:
 
                 # Indices of svd variables
                 slices = [slice(idx, idx + 4) for idx, name in enumerate(names) if ('cadense' in name) & ('U' in name)]
-                length = range(len(variables))
-                svd_indices = [idx for indices in slices for idx in length[indices]]
                 # Calculate SVD variables per layer
                 for indices in slices:
                     # Get gradients and variables for components
                     u, s, v, w = variables[indices]
                     du, ds, dv, dw = momentum[indices]
                     lu, ls, lv, lw = velocity[indices]
-                    # Calculate adaptive rates on Stieffel manifold
-                    left_nu = self.nu
-                    right_nu = self.nu
+                    # Calculate scale gradients with momentum bias
+                    du /= (1 - self.beta) ** t
+                    ds /= (1 - self.beta) ** t
+                    dv /= (1 - self.beta) ** t
+                    # Calculate adaptive learning rates
+                    lu /= (1 - self.gamma) ** t
+                    ls /= (1 - self.gamma) ** t
+                    lv /= (1 - self.gamma) ** t
+                    # Scale gradients with adaptive learning rate
+                    du /= tf.sqrt(lu + 10e-8)
+                    ds /= tf.sqrt(ls + 10e-8)
+                    dv /= tf.sqrt(lv + 10e-8)
                     # Calculate orthogonal update
-                    chi_u = chi(u, du, left_nu)
-                    chi_v = chi(v, dv, right_nu)
+                    chi_u = chi(u, du, self.nu)
+                    chi_v = chi(v, dv, self.nu)
                     u_update = u + chi_u @ u
                     v_update = v + chi_v @ v
                     # Calculate assembled gradient
@@ -219,12 +249,9 @@ class SVDAdamOptimizer:
                     psi_u = tf.transpose(u) @ chi_u @ u
                     psi_v = tf.transpose(v) @ chi_v @ v
                     s_matrix = tf.linalg.diag(s)
-                    # Calculate adaptive learning rate
-                    ls /= (1 - self.gamma) ** t
-                    rate = self.learning_rate * tf.sqrt(ls + 10e-8) ** (-1)
                     # Update singular values
                     s_update_matrix = psi_u @ s_matrix + (s_matrix + psi_u @ s_matrix) @ tf.transpose(
-                        psi_v) - rate * (tf.transpose(u_update) @ dk @ v_update)
+                        psi_v) - self.learning_rate * (tf.transpose(u_update) @ dk @ v_update)
                     s_update = tf.linalg.diag_part(s_update_matrix)
                     # Update singular values
                     s.assign_add(s_update)
@@ -238,10 +265,13 @@ class SVDAdamOptimizer:
 
                 # Update remainder
                 for idx, (lv, dv, v) in enumerate(zip(velocity, momentum, model.trainable_variables)):
-                    if idx not in svd_indices:
-                        lv /= (1 - self.gamma)**t
-                        rate = self.learning_rate * tf.sqrt(lv + 10e-8)**(-1)
-                        v.assign_sub(rate * dv)
+                    if idx not in [idx for indices in slices for idx in range(len(variables))[indices]]:
+                        # Calculate adaptive learning rate
+                        lv /= (1 - self.gamma) ** t
+                        # Scale gradients with adaptive learning rate
+                        dv /= tf.sqrt(lv + 10e-8)
+                        # Assign adaptive gradients
+                        v.assign_sub(self.learning_rate * dv)
                 # Add batch loss
                 train_loss.append(np.mean(loss))
                 for key, metric in metrics.items():
@@ -249,3 +279,6 @@ class SVDAdamOptimizer:
                 # Increment t
                 t += 1
         return train_loss, train_metrics
+
+
+
