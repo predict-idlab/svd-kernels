@@ -1,13 +1,13 @@
 import tensorflow as tf
 
 from typing import *
-from .utils import update_gradients, scaled_dot_product_attention, positional_encoding
+from .utils import scaled_dot_product_attention, positional_encoding
 from src.initializers import SingularValueInitializer
 
 
 class SVDDense(tf.keras.layers.Layer):
     """SVD based densely connected layer."""
-    def __init__(self, units: int, rank: int = None, activation: str = 'relu', use_bias: bool = True):
+    def __init__(self, units: int, rank: Optional[int] = None, activation: str = 'relu', use_bias: bool = True):
         """Initialise layer.
 
         Parameters
@@ -119,29 +119,69 @@ class PositionalEncodingLayer(tf.keras.layers.Layer):
 
 
 class MultiHeadAttention(tf.keras.models.Model):
-    def __init__(self, d_model, num_heads):
+    """Multihead attention with SVD layers"""
+    def __init__(self, d_model, d_model_rank, num_heads):
+        """Initialize layer
+
+        Parameters
+        ----------
+        d_model: int
+            Model feature dimension depth
+        d_model_rank
+            Model feature dimension rank
+        num_heads: int
+            Number of attention heads
+        """
         super(MultiHeadAttention, self).__init__()
         self.num_heads = num_heads
         self.d_model = d_model
+        self.d_model_rank = d_model_rank
 
         assert d_model % num_heads == 0
 
         self.depth = d_model // num_heads
 
-        self.query_weights = tf.keras.layers.Dense(d_model)
-        self.key_weights = tf.keras.layers.Dense(d_model)
-        self.value_weights = tf.keras.layers.Dense(d_model)
+        self.query_weights = SVDDense(d_model, d_model_rank)
+        self.key_weights = SVDDense(d_model, d_model_rank)
+        self.value_weights = SVDDense(d_model, d_model_rank)
 
-        self.dense = tf.keras.layers.Dense(d_model)
+        self.dense = SVDDense(d_model, d_model_rank)
 
-    def split_heads(self, x, batch_size):
+    def split_heads(self, x: tf.Tensor, batch_size: int):
         """Split the last dimension into (num_heads, depth).
         Transpose the result such that the shape is (batch_size, num_heads, seq_len, depth)
+
+        Parameters
+        ----------
+        x: tf.Tensor
+            Inputs for splitting
+        batch_size: int
+            Batch size
+
+        Returns
+        -------
+        Split inputs
         """
         x = tf.reshape(x, (batch_size, -1, self.num_heads, self.depth))
         return tf.transpose(x, perm=[0, 2, 1, 3])
 
-    def __call__(self, values, keys, queries, mask):
+    def __call__(self, values: tf.Tensor, keys: tf.Tensor, queries: tf.Tensor, mask: tf.Tensor):
+        """Call multihead attention.
+
+        Parameters
+        ----------
+        values: tf.Tensor[float]
+            Values for attention
+        keys: tf.Tensor[float]
+            Keys for attention
+        queries: tf.Tensor[float]
+            Queries for attention
+        mask: tf.Tensor[bool]
+            Attention mask
+        Returns
+        -------
+        Attention output and attention weights
+        """
         batch_size = tf.shape(queries)[0]
 
         queries = self.query_weights(queries)  # (batch_size, seq_len, d_model)
@@ -170,17 +210,60 @@ class MultiHeadAttention(tf.keras.models.Model):
 
 
 class AttentionBlock(tf.keras.models.Model):
-    def __init__(self, d_model: int, num_heads: int, rate):
+    """Attention block composition layer"""
+    def __init__(self, d_model: int, d_model_rank: int, num_heads: int, rate, return_weights: bool = False):
+        """Initialize layer.
+
+        Parameters
+        ----------
+        d_model: int
+            Model feature dimension
+        d_model_rank: int
+            Model feature rank
+        num_heads: int
+            Number of heads
+        rate: float
+            Dropout rate
+        return_weights: bool
+            Whether to return weights
+            (default to False)
+        """
         super(AttentionBlock, self).__init__()
-        self.attention = MultiHeadAttention(d_model, num_heads)
+        # Initialize layers
+        self.attention = MultiHeadAttention(d_model, d_model_rank, num_heads)
         self.dropout = tf.keras.layers.Dropout(rate)
         self.normalization = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        # initialize parameters
+        self.return_Weights = return_weights
 
-    def __call__(self, values, keys, queries, look_ahead_mask, training):
+    def __call__(self, values: tf.Tensor, keys: tf.Tensor, queries: tf.Tensor,
+                 look_ahead_mask: tf.Tensor, training: bool):
+        """Call layer.
+
+        Parameters
+        ----------
+        values: tf.Tensor[float]
+            Values for attention
+        keys: tf.Tensor[float]
+            Keys for attention
+        queries: tf.Tensor[float]
+            Queries for attention
+        look_ahead_mask: tf.Tensor[bool]
+            Look ahead mask for time series
+        training: bool
+            training indicator
+        Returns
+        -------
+        Outputs and/or weights based on indicator
+        """
+        # Attend inputs
         outputs, weights = self.attention(values, keys, queries, look_ahead_mask)
+        # Dropout
         outputs = self.dropout(outputs, training=training)
+        # Layer normalization
         outputs = self.normalization(queries + outputs)
-        return outputs, weights
+        # Return outputs
+        return outputs, weights if self.return_weights else outputs
 
 
 class DecoderLayer(tf.keras.models.Model):
@@ -241,3 +324,218 @@ class PointWiseFeedForward(tf.keras.models.Model):
     def __call__(self, inputs):
         inputs = self.dense(inputs)
         return self.linear(inputs)
+
+
+class LSTM(tf.keras.models.Model):
+    """LSTM cell with SVD kernels."""
+    def __init__(self, units: int, rank: int, activation: str = 'tanh', recurrent_activation: str = 'sigmoid',
+                 use_bias: bool = True, unit_forget_bias: bool = True, dropout: float = 0.0,
+                 recurrent_dropout: float = 0.0, return_sequences: bool = False,
+                 return_state: bool = False, go_backwards: bool = False):
+        """Initialize LSTM layer
+
+        Parameters
+        ----------
+        units:  int
+            Hidden size.
+        rank: int
+            Rank of hidden matrices.
+        activation: str
+            Activation function for output.
+            (default is tanh)
+        recurrent_activation: str
+            Activation function for recurrent part.
+            (default is sigmoid)
+        use_bias: bool
+            Bias indicator for output.
+            (default is True)
+        unit_forget_bias:
+            Bias indicator for forget gate.
+            (default is true)
+        dropout: float
+            Dropout rate for output.
+            (default is 0.0)
+        recurrent_dropout: float
+            Dropout rate for recurrent part.
+            (default is 0.0)
+        return_sequences: bool
+            Whether to return full output sequence.
+            If states are returned this also controls whether or not full state sequences are returned.
+            (default is False)
+        return_state: bool
+            Whether to return state. Returns context and hidden state if True.
+            (default is False)
+        go_backwards: bool
+            Whether to run through time component in reverse.
+            (default is False)
+        """
+        super(LSTM, self).__init__()
+        # Regular parameters
+        self.units = units
+        self.rank = rank
+        self.use_bias = use_bias
+        self.activation = activation
+        self.dropout = dropout
+        # Recurrent parameters
+        self.recurrent_activation = recurrent_activation
+        self.recurrent_dropout = recurrent_dropout
+        # Forget parameters
+        self.unit_forget_bias = unit_forget_bias
+        # Calculation parameters
+        self.return_sequences = return_sequences
+        self.return_state = return_state
+        self.go_backwards = go_backwards
+        # Forget gate components
+        self.linear_forget_w1 = SVDDense(self.units, self.rank, use_bias=self.unit_forget_bias)
+        self.linear_forget_r1 = SVDDense(self.units, self.rank, use_bias=False)
+        self.sigmoid_forget = tf.keras.activations.get(self.recurrent_activation)
+        # Input gate components
+        self.linear_gate_w2 = SVDDense(self.units, self.rank, use_bias=self.use_bias)
+        self.linear_gate_r2 = SVDDense(self.units, self.rank, use_bias=False)
+        self.sigmoid_gate = tf.keras.activations.get(self.recurrent_activation)
+        # Cell memory components
+        self.linear_gate_w3 = SVDDense(self.units, self.rank, use_bias=self.use_bias)
+        self.linear_gate_r3 = SVDDense(self.units, self.rank, use_bias=False)
+        self.activation_gate = tf.keras.activations.get(self.activation)
+        # Out gate components
+        self.linear_gate_w4 = SVDDense(self.units, self.rank, use_bias=self.use_bias)
+        self.linear_gate_r4 = SVDDense(self.units, self.rank, use_bias=False)
+        self.sigmoid_hidden_out = tf.keras.activations.get(self.recurrent_activation)
+        self.activation_final = tf.keras.activations.get(self.activation)
+
+    def forget(self, x: tf.Tensor, h: tf.Tensor):
+        """Forget gate.
+
+        Parameters
+        ----------
+        x: tf.Tensor
+            Input
+        h: tf.Tensor
+            Hidden state
+
+        Returns
+        -------
+            Activated forget equation
+        """
+        x = self.linear_forget_w1(x)
+        h = self.linear_forget_r1(h)
+        return self.sigmoid_forget(x + h)
+
+    def input_gate(self, x: tf.Tensor, h: tf.Tensor):
+        """Forget gate.
+
+        Parameters
+        ----------
+        x: tf.Tensor
+            Input
+        h: tf.Tensor
+            Hidden state
+
+        Returns
+        -------
+        Activated input
+        """
+        # Equation 1. input gate
+        x = self.linear_gate_w2(x)
+        h = self.linear_gate_r2(h)
+        return self.sigmoid_gate(x + h)
+
+    def cell_memory_gate(self, i: tf.Tensor, f: tf.Tensor, x: tf.Tensor, h: tf.Tensor, c: tf.Tensor):
+        """Memory gate.
+
+        Parameters
+        ----------
+        i: tf.Tensor
+            Gated input
+        f: tf.Tensor
+            Forget gate
+        x: tf.Tensor
+            Inputs
+        h: tf.Tensor
+            Hidden state
+        c: tf.Tensor
+            Context state
+
+        Returns
+        -------
+        Next context state
+        """
+        x = self.linear_gate_w3(x)
+        h = self.linear_gate_r3(h)
+        # new information part that will be injected in the new context
+        k = self.activation_gate(x + h)
+        g = k * i
+        # forget old context/cell info
+        c *= f
+        # learn new context/cell info
+        c += g
+        return c
+
+    def out_gate(self, x: tf.Tensor, h: tf.Tensor):
+        """Output gate.
+
+        Parameters
+        ----------
+        x: tf.tensor
+            Inputs
+        h: tf.Tensor
+            Hidden state
+
+        Returns
+        -------
+        Activated output
+        """
+        x = self.linear_gate_w4(x)
+        h = self.linear_gate_r4(h)
+        return self.sigmoid_hidden_out(x + h)
+
+    def __call__(self, inputs: tf.Tensor, mask: Optional[tf.Tensor] = None,
+                 training: Optional[bool] = None, initial_state: Optional[List[tf.Tensor]] = None):
+        """Call layer.
+
+        Parameters
+        ----------
+        inputs:
+            A 3D tensor with shape [batch, timesteps, feature].
+        mask:
+            Binary tensor of shape [batch, timesteps] indicating whether a given timestep should be masked
+            (optional, defaults to None).
+        training:
+            Python boolean indicating whether the layer should behave in training mode or in inference mode.
+            This argument is passed to the cell when calling it.
+            This is only relevant if dropout or recurrent_dropout is used (optional, defaults to None).
+        initial_state:
+            List of initial state tensors to be passed to the first call of the cell
+            (optional, defaults to None which causes creation of zero-filled initial state tensors).
+
+        Returns
+        -------
+        List of output tensors based on configuration
+        """
+        # Unstack inputs
+        inputs = tf.unstack(inputs, axis=-2)
+        # Initialize outputs
+        outputs = tf.zeros_like(inputs[0])[..., tf.newaxis, ...]
+        # Initialize states
+        h, c = tf.zeros_like(inputs[0]), tf.zeros_like(inputs[0]) if initial_state is None else initial_state
+        # Get sequence and reverse if necessary
+        sequence = reversed(inputs) if self.go_backwards else inputs
+        # Calculate outputs
+        for x in sequence:
+            # Equation 1. input gate
+            i = self.input_gate(x, h)
+            # Equation 2. forget gate
+            f = self.forget(x, h)
+            # Equation 3. updating the cell memory
+            c = self.cell_memory_gate(i, f, x, h, c)
+            # Equation 4. calculate the main output gate
+            o = self.out_gate(x, h)
+            # Equation 5. produce next hidden output
+            h = o * self.activation_final(c)
+            # Stack
+            outputs = tf.concat([outputs, o], axis=-2)
+        # Return sequence or last output
+        out = outputs if self.return_sequences else outputs[:, -1, :]
+        # Return states or output
+        out = [out, c, h] if self.return_state else out
+        return out
