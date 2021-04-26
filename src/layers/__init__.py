@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 from typing import *
-from .utils import update_gradients, scaled_dot_product_attention, positional_encoding
+from .utils import scaled_dot_product_attention, positional_encoding
 from src.initializers import SingularValueInitializer
 
 

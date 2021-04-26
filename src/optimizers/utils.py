@@ -1,6 +1,7 @@
 import tensorflow as tf
+
 from os.path import join
-from typing import Union
+from typing import Union, Iterable, List
 
 
 def phi(var: tf.Tensor, grad: tf.tensor, nu: Union[float, tf.Tensor]) -> tf.Tensor:
@@ -28,8 +29,14 @@ def phi(var: tf.Tensor, grad: tf.tensor, nu: Union[float, tf.Tensor]) -> tf.Tens
     return tf.linalg.inv(i - w) @ (i + w)
 
 
-def chi(var: tf.Tensor, grad: tf.tensor, nu: Union[float, tf.Tensor]) -> tf.Tensor:
+def chi(var: tf.Tensor, grad: tf.tensor, nu: float) -> tf.Tensor:
     """Calculate additive part of  phi = I + chi given a variable and it's gradient.
+
+    Notes
+    -----
+    Nu can't be tf.Tensor due to shape in calculation of skew part.
+    This is why adaptive learning rate are pressed into gradient calculation.
+    See SVDAdamOptimizer for more info.
 
     Parameters
     ----------
@@ -37,7 +44,7 @@ def chi(var: tf.Tensor, grad: tf.tensor, nu: Union[float, tf.Tensor]) -> tf.Tens
         Variable values tensor
     grad: tf.Tensor
         Variable gradients tensor
-    nu: tf.Tensor or float
+    nu: float
         Learning rate on manifold
     Returns
     -------
@@ -108,8 +115,6 @@ def update_svd(u, s, v, du, ds, dv, lr_u, lr_s, lr_v, eps: float = 10e-8):
 
     Parameters
     ----------
-    Parameters
-    ----------
     u: tf.Tensor
         Left orthogonal matrix (N x R)
     s: tf.Tensor
@@ -122,20 +127,24 @@ def update_svd(u, s, v, du, ds, dv, lr_u, lr_s, lr_v, eps: float = 10e-8):
         Singular values vector gradients (R)
     dv: tf.Tensor
         Right orthogonal matrix gradients (M x R)
-    lr_u
-    lr_s
-    lr_v
+    lr_u: float
+        Left orthogonal matrix learning rate
+    lr_s: float
+        Singular values learning rate
+    lr_v: float
+        Right orthogonal matrix learning rate
     eps: float
         Epsilon for numerical stability of division and roots
         (default is 10e-8)
 
     Returns
-    -------
-
+    -----
+    Gradients updates for U, S & V variables based on gradients and learning rates.
     """
     # Calculate orthogonal update
     chi_u = chi(u, du, lr_u)
     chi_v = chi(v, dv, lr_v)
+    # Calculate update step
     delta_u = chi_u @ u
     delta_v = chi_v @ v
     # Calculate assembled gradient
@@ -143,30 +152,42 @@ def update_svd(u, s, v, du, ds, dv, lr_u, lr_s, lr_v, eps: float = 10e-8):
     # Calculate singular value updates
     psi_u = tf.transpose(u) @ delta_u
     psi_v = tf.transpose(v) @ delta_v
-    # Diagonal matrices
-    s_ = tf.linalg.diag(s)
-    lr_s_ = tf.linalg.diag(lr_s)
-    # Diagonal part of update only using R x R matrices
-    delta_s = tf.linalg.diag_part(
-        psi_u@s_ + (s_ + psi_u@s_)@tf.transpose(psi_v) - lr_s_ * (tf.transpose(u + delta_u)@dw@(v + delta_v))
-    )
-    # Update orthogonal matrices
-    u.assign_add(delta_u)
-    v.assign_add(delta_v)
-    # Update singular values
-    s.assign_add(delta_s)
+    # Diagonal part of update only using R x R matrices or vectors
+    delta_s = psi_u@s + (s + psi_u@s)@tf.transpose(psi_v) - lr_s * tf.linalg.diag_part(
+        tf.transpose(u + delta_u)@dw@(v + delta_v))
+    return delta_u, delta_s, delta_v
 
 
-def unpack(packed):
+def unpack(packed: Iterable) -> List:
+    """Unpack a model architecture.
+
+    Notes
+    -----
+    This method unpacks in the same order as model.layers in Tensorflow.
+
+    Parameters
+    ----------
+    packed: Iterable
+        Iterable containing item(s) with '.layer' attribute
+    Returns
+    -------
+        Zipped list containing names and layer items
+    """
+    # Initialize lists
     unpacked = []
     names = []
+    # Enumerate architecture
     for elements in packed:
+        # Unpack layers
         if hasattr(elements, 'layers'):
+            # Recurrent part
             for name, element in unpack(elements.layers):
                 name = join(elements.name, name)
                 unpacked.append(element)
                 names.append(name)
+        # add to list and end recurrence
         else:
             unpacked.append(elements)
             names.append(elements.name)
+    # return list of unpacked outputs
     return list(zip(names, unpacked))
