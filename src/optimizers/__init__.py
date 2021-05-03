@@ -1,9 +1,198 @@
 from typing import *
-from src.models.utils import unpack, chi, assembled_gradient
 
-import tqdm
+from src.optimizers.utils import update_svd
+
 import tensorflow as tf
+
+
+class SVDAdam(tf.keras.optimizers.Optimizer):
+    """Adam Optimizer function for SVD based architectures with keras optimizer compatibility"""
+
+    def __init__(self, model: tf.keras.Model, learning_rate: float = 10e-4, nu: Optional[float] = None,
+                 beta: float = 0.9, gamma: float = 0.999, name: Optional[str] = None):
+        """Initialize optimizer
+
+        Parameters
+        ----------
+        model: tf.keras.Model
+            Model accompanied by optimizer. Needed for architecture unpacking
+        learning_rate: float
+            Learning rate for optimizer
+            (Default is 10e-4)
+        nu: float
+            Learning rate for cayley transform. If None it is set equal to learning rate
+            (Default is None)
+        beta: float
+            Momentum parameter
+            (Default is 0.9)
+        gamma: float
+            Velocity parameter
+            (default is 0.999)
+        name: Optional[str]
+            Name of optimizer
+            (default is None)
+        """
+        super(SVDAdam, self).__init__(name=name)
+        # Set parameters
+        self.learning_rate = learning_rate
+        self.nu = nu if nu is not None else learning_rate
+        self.beta = beta
+        self.gamma = gamma
+        self.model = model
+        self.epsilon = 10e-8
+        # Unpack model
+        self.names = [var.name for name, layer in unpack([self.model]) for var in layer.variables]
+        # Indices of svd variables
+        self.slices = [
+            slice(idx, idx + 3) for idx, name in enumerate(self.names) if ('svd' in name) & ('U' in name)]
+
+    def _create_slots(self, var_list: List[tf.Variable]):
+        """Create slots for optimizer
+
+        Parameters
+        ----------
+        var_list: List[tf.Variable]
+            List of variables for which slots are made
+        """
+        # Create slots for momentum and velocity
+        for variable in var_list:
+            self.add_slot(variable, "momentum")
+            self.add_slot(variable, "velocity")
+
+    def _apply_adam(self, grad, var):
+        """Apply modified adam.
+
+        Notes
+        -----
+        This application implements both adaptive learning rate and momentum into the gradient calculation.
+        Subsequently this reduces the gradient update to a regular SGD update.
+
+        Parameters
+        ----------
+        grad: tf.Tensor
+            Gradient tensor
+        var: tf.Variable
+            Variable
+
+        Returns
+        -------
+        Updated gradient corresponding to Adam application.
+        """
+        # Get slots
+        momentum = self.get_slot(var, "momentum")
+        velocity = self.get_slot(var, "velocity")
+        # Calculate updated variables
+        momentum.assign(self.beta * momentum + tf.multiply(1. - self.beta, grad))
+        velocity.assign(self.gamma * velocity + tf.multiply(1. - self.gamma, tf.math.pow(grad, 2)))
+        # Apply iteration scaling
+        momentum_ = momentum / (1. - tf.math.pow(self.beta, tf.cast(self.iterations + 1, momentum.dtype)))
+        velocity_ = velocity / (1. - tf.math.pow(self.gamma, tf.cast(self.iterations + 1, velocity.dtype)))
+        # Return adam scaled gradients
+        return tf.sqrt(velocity_ + self.epsilon) ** (-1) * momentum_
+
+    def _transform_gradients(self, grads_and_vars: Iterable[(tf.Tensor, tf.Variable)]):
+        """Transform gradients before application.
+
+        Notes
+        -----
+        This function is called before application in 'apply_gradients'.
+
+        Parameters
+        ----------
+        grads_and_vars: Iterable
+            Gradients and variables
+
+        Returns
+        -------
+            Gradients and variables with updated gradients
+        """
+        # Get list of all variable indices
+        indices = list(range(len(list(grads_and_vars))))
+        # Calculate SVD variables per layer
+        for idx in self.slices:
+            # Get gradients and variables for components
+            (du, ds, dv), (u, s, v) = zip(*grads_and_vars[idx])
+            # Modify gradients for adam
+            du, ds, dv = self._apply_adam(du, u), self._apply_adam(ds, s), self._apply_adam(dv, v)
+            # Update svd layer with modified gradients
+            du, ds, dv = update_svd(u, s, v, du, ds, dv, self.nu, self.learning_rate, self.nu, self.epsilon)
+            # Re-add updated gradients to grads & vars
+            grads_and_vars[idx] = [(du, u), (ds, s), (dv, v)]
+            # Delete svd indices
+            del indices[idx]
+
+        # Iterate over normal weights
+        for idx, (grad, var) in enumerate(grads_and_vars):
+            if idx in indices:
+                # Apply adam
+                grad = self._apply_adam(grad, var)
+                # Scale with learning rate
+                grads_and_vars[idx] = (-self.learning_rate * grad, var)
+        return grads_and_vars
+
+    def _resource_apply_dense(self, grad: tf.Tensor, handle: tf.Variable, apply_state: dict):
+        """Application of gradients for dense tensors.
+
+        Notes
+        -----
+        This application function just does a addition of the gradient.
+
+        Parameters
+        ----------
+        grad: tf.Tensor
+            Gradient for application
+        handle: tf.Variable
+            Variable on which to apply gradient
+        apply_state: dict
+            State of application
+
+        Returns
+        -------
+        Updated variable
+        """
+        return handle.assign_add(grad)
+
+    def _resource_apply_sparse(self, grad, handle, indices, apply_state):
+        """Application of gradients for sparse tensors.
+
+        Notes
+        -----
+        This application function just does a addition of the gradient.
+
+        Parameters
+        ----------
+        grad: tf.Tensor
+            Gradient for application
+        handle: tf.Variable
+            Variable on which to apply gradient
+        indices: tf.Tensor
+            Indices of sparse tensor for which to apply gradients
+        apply_state: dict
+            State of application
+
+        Returns
+        -------
+        Updated variable
+        """
+        return handle.assign_add(grad)
+
+    def get_config(self):
+        """Get configuration.
+
+        Returns
+        -------
+        Serialized configuration
+        """
+        return super().get_config()
+
+
+#### DEPRECATED ####
+# -> Still in code as reference material
+
 import numpy as np
+import tqdm
+
+from src.models.utils import unpack, chi, assembled_gradient
 
 
 class SVDOptimizer:
