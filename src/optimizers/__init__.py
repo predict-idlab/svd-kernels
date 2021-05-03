@@ -90,7 +90,7 @@ class SVDAdam(tf.keras.optimizers.Optimizer):
         # Return adam scaled gradients
         return tf.sqrt(velocity_ + self.epsilon) ** (-1) * momentum_
 
-    def _transform_gradients(self, grads_and_vars: Iterable[(tf.Tensor, tf.Variable)]):
+    def _transform_gradients(self, grads_and_vars: Iterable[Any]):
         """Transform gradients before application.
 
         Notes

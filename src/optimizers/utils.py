@@ -52,13 +52,8 @@ def update_svd(u, s, v, du, ds, dv, lr_u, lr_s, lr_v, eps: float = 10e-8):
     psi_v = tf.transpose(v) @ delta_v
     # Diagonal matrices
     s_ = tf.linalg.diag(s)
-    lr_s_ = tf.linalg.diag(lr_s)
     # Diagonal part of update only using R x R matrices
     delta_s = tf.linalg.diag_part(
-        psi_u@s_ + (s_ + psi_u@s_)@tf.transpose(psi_v) - lr_s_ * (tf.transpose(u + delta_u)@dw@(v + delta_v))
+        psi_u@s_ + (s_ + psi_u@s_)@tf.transpose(psi_v) - lr_s * (tf.transpose(u + delta_u)@dw@(v + delta_v))
     )
-    # Update orthogonal matrices
-    u.assign_add(delta_u)
-    v.assign_add(delta_v)
-    # Update singular values
-    s.assign_add(delta_s)
+    return delta_u, delta_s, delta_v

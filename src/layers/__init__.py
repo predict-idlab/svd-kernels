@@ -59,7 +59,7 @@ class SVDDense(tf.keras.layers.Layer):
         if self.use_bias:
             self._bias = self.add_weight("bias", shape=bias_shape, dtype=tf.float32, initializer=z_initializer)
 
-    def __call__(self, inputs: tf.Tensor):
+    def call(self, inputs: tf.Tensor):
         """Call layer.
 
         Parameters
