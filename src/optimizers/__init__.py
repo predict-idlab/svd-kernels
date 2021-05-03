@@ -9,7 +9,7 @@ class SVDAdam(tf.keras.optimizers.Optimizer):
     """Adam Optimizer function for SVD based architectures with keras optimizer compatibility"""
 
     def __init__(self, model: tf.keras.Model, learning_rate: float = 10e-4, nu: Optional[float] = None,
-                 beta: float = 0.9, gamma: float = 0.999, name: Optional[str] = None):
+                 beta: float = 0.9, gamma: float = 0.999, method: str = 'chi', k: Optional[int] = None,  name: Optional[str] = None):
         """Initialize optimizer
 
         Parameters
@@ -28,6 +28,13 @@ class SVDAdam(tf.keras.optimizers.Optimizer):
         gamma: float
             Velocity parameter
             (default is 0.999)
+        method: str
+            Method used to calculate cayley transform
+            (default is 'chi')
+        k: Optional[int]
+            Iterations for fixed point calculation of cayley transform. 
+            When None the full inverse is used.
+            (default is None)
         name: Optional[str]
             Name of optimizer
             (default is None)
@@ -39,6 +46,8 @@ class SVDAdam(tf.keras.optimizers.Optimizer):
         self.beta = beta
         self.gamma = gamma
         self.model = model
+        self.k = k
+        self.method = method
         self.epsilon = 10e-8
         # Unpack model
         self.names = [var.name for name, layer in unpack([self.model]) for var in layer.variables]
@@ -115,7 +124,7 @@ class SVDAdam(tf.keras.optimizers.Optimizer):
             # Modify gradients for adam
             du, ds, dv = self._apply_adam(du, u), self._apply_adam(ds, s), self._apply_adam(dv, v)
             # Update svd layer with modified gradients
-            du, ds, dv = update_svd(u, s, v, du, ds, dv, self.nu, self.learning_rate, self.nu, self.epsilon)
+            du, ds, dv = update_svd(u, s, v, du, ds, dv, self.nu, self.learning_rate, self.nu, self.epsilon, self.method, self.k)
             # Re-add updated gradients to grads & vars
             grads_and_vars[idx] = [(du, u), (ds, s), (dv, v)]
             # Delete svd indices
