@@ -19,7 +19,8 @@ def orthogonality_number(weights: tf.Tensor) -> tf.float32:
         Orthogonality measure kappa
     """
     shape = tf.shape(weights)
-    return tf.linalg.norm(tf.eye(shape[-1]) - tf.transpose(weights)@weights, axis=[-1, -2])
+    kappa = tf.linalg.norm(tf.eye(shape[-1]) - tf.transpose(weights)@weights, axis=[-1, -2])
+    return tf.divide(kappa, tf.cast(tf.reduce_prod(shape), kappa.dtype))
 
 def conditioning_number(weights: tf.Tensor) -> tf.float32:
     """Calculate conditioning number.

@@ -24,19 +24,19 @@ def phi(var: tf.Tensor, grad: tf.Tensor, nu: Union[float, tf.Tensor], k: Optiona
     # Calculate asymmetric gradient
     w = grad @ tf.transpose(var) - var @ tf.transpose(grad)
     # Scale with learning rate
-    w *= nu
+    w *= tf.divide(nu, 2.)
     # Get unit matrix
     i = tf.eye(w.shape[0])
-    # Initialize y
-    y = i + w
     # Calculate Cayley with inverse when no iterations are defined
     if k is None:
-        y = tf.linalg.inv(i - w) @ y
+        y = tf.linalg.inv(i + w) @ (i - w)
     else:
         assert k > -1
+        # Initialize y
+        y = i - w  
         # Calculate iteratively
-        for _ in range(k):
-            y = i + w@(i + y)
+        for _ in range(k):    
+            y = i - w@(i + y)
     return y
 
 
@@ -72,22 +72,22 @@ def chi(var: tf.Tensor, grad: tf.Tensor, nu: float, k: Optional[int] = None) -> 
         skew *= tf.divide(nu, 2.)
         skew += tf.eye(skew.shape[0])
         # Calculate inverse
-        skew_inv = tf.linalg.inv(skew, adjoint=False)
+        skew_inv = tf.linalg.inv(skew)
         # Calculate chi
-        y = -nu * a @ skew_inv @ tf.transpose(b)
+        y = - nu * a @ skew_inv @ tf.transpose(b)
     else:
         assert k > -1
         # Calculate asymmetric gradient
         w = grad @ tf.transpose(var) - var @ tf.transpose(grad)
         # Scale with learning rate
-        w *= nu
+        w *= tf.divide(nu, 2.)
         # Get unit matrix
         i = tf.eye(w.shape[0])
         # Initialize chi
-        y = w
+        y = - w
         # Calculate iteratively
         for _ in range(k):
-            y = i + w @ (2*i + y)
+            y = - w @ (2*i + y)
     return y
 
 
