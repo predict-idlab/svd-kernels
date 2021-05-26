@@ -3,11 +3,7 @@
   <component name="ChangeListManager">
     <list default="true" id="25d09b55-5d6f-48f5-a8f4-caac9276d06d" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/callbacks/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/callbacks/utils" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/initializers/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/initializers/utils" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/layers/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/layers/utils" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/models/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/models/utils" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/src/optimizers/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/optimizers/utils" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/optimizers/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/optimizers/__init__.py" afterDir="false" />
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -28,10 +24,13 @@
     <option name="ROOT_SYNC" value="DONT_SYNC" />
   </component>
   <component name="ProjectId" id="1rIb0O8TEVImHhctbCpzeXN148O" />
+  <component name="ProjectLevelVcsManager">
+    <ConfirmationsSetting value="2" id="Add" />
+  </component>
   <component name="PropertiesComponent">
     <property name="SHARE_PROJECT_CONFIGURATION_FILES" value="true" />
     <property name="WebServerToolWindowFactoryState" value="false" />
-    <property name="last_opened_file_path" value="C:/Program Files/Git/bin/git.exe" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$/../data-analysis-in-health-and-connected-care" />
     <property name="settings.editor.selected.configurable" value="com.jetbrains.python.configuration.PyIntegratedToolsModulesConfigurable" />
   </component>
   <component name="RecentsManager">
@@ -64,6 +63,12 @@
       <workItem from="1618666328133" duration="10670000" />
       <workItem from="1619789631217" duration="3193000" />
       <workItem from="1620024650140" duration="11529000" />
+      <workItem from="1620292865032" duration="4263000" />
+      <workItem from="1620388632686" duration="637000" />
+      <workItem from="1620730482606" duration="1140000" />
+      <workItem from="1620734747893" duration="696000" />
+      <workItem from="1620736681350" duration="70000" />
+      <workItem from="1622021606642" duration="2938000" />
     </task>
     <servers />
   </component>
