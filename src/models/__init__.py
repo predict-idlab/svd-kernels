@@ -1,58 +1,11 @@
 from typing import *
-from typing import Dict, List, Any, Union
 
 import tensorflow as tf
 
 from os.path import join
-from numpy import concatenate, array, delete, split
+from numpy import delete
 from src.layers import EncoderLayer, DecoderLayer, PositionalEncodingLayer
 from .utils import *
-
-
-class SVDFeedForward(tf.keras.models.Model):
-    def __init__(self):
-        """Initialize model."""
-        super(SVDFeedForward, self).__init__()
-
-    def build(self, input_shape):
-        """Build function"""
-        raise NotImplementedError
-
-    def __call__(self, inputs, training):
-        """Call function."""
-        raise NotImplementedError
-
-    def train_step(self, data):
-        """Training step"""
-        # Unpack
-        x, y = data
-        # Get learning rate
-        lr = self.optimizer.learning_rate
-        # Get gradients
-        with tf.GradientTape() as tape:
-            y_pred = self(x, training=True)
-            loss = self.compiled_loss(y, y_pred, regularization_losses=self.losses)
-            trainable_variables = self.trainable_variables
-            gradients = tape.gradient(loss, trainable_variables)
-        # Make gradients and variables zip
-        grads_and_vars = zip(trainable_variables, gradients)
-        # Optimize svd layers
-        for layer in (layer for layer in self.layers if 'svd' in layer.name):
-            # Get layer component names
-            layer_variables = ['/'.join([self.name, layer.name, suffix]) for suffix in ['U:0', 'S:0', 'V:0']]
-            # Get gradients and variables for components
-            (u, s, v), (du, ds, dv) = zip(*[(v, g) for v, g in grads_and_vars if v.name in layer_variables])
-            # Update gradients and variables zip to not contain these layer's components
-            grads_and_vars = [(v, g) for v, g in grads_and_vars if v.name not in layer_variables]
-            # update svd variables
-            update_svd(u, s, v, du, ds, dv, lr, lr, lr)
-        # apply remainder of regular variables
-        self.optimizer.apply_gradients(grads_and_vars)
-
-
-"""
-Transformer 
-"""
 
 
 class Encoder(tf.keras.models.Model):
