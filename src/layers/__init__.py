@@ -119,29 +119,84 @@ class PositionalEncodingLayer(tf.keras.layers.Layer):
 
 
 class MultiHeadAttention(tf.keras.models.Model):
-    def __init__(self, d_model, num_heads):
+    """Multi-head attention layer."""
+    def __init__(self, d_model: int, d_model_rank: Optional[int], num_heads: int):
+        """Initialize layer.
+
+        Parameters
+        ----------
+        d_model: int
+            Model depth
+        d_model_rank: Optional[int]
+            Rank of SVD approximation.
+            If None regular matrices are used.
+        num_heads: int
+            Number of attention heads
+        """
         super(MultiHeadAttention, self).__init__()
         self.num_heads = num_heads
         self.d_model = d_model
+        self.d_model_rank = d_model_rank
 
         assert d_model % num_heads == 0
 
         self.depth = d_model // num_heads
 
-        self.query_weights = tf.keras.layers.Dense(d_model)
-        self.key_weights = tf.keras.layers.Dense(d_model)
-        self.value_weights = tf.keras.layers.Dense(d_model)
+        if d_model_rank is None:
+            self.query_weights = tf.keras.layers.Dense(d_model)
+            self.key_weights = tf.keras.layers.Dense(d_model)
+            self.value_weights = tf.keras.layers.Dense(d_model)
 
-        self.dense = tf.keras.layers.Dense(d_model)
+            self.dense = tf.keras.layers.Dense(d_model)
 
-    def split_heads(self, x, batch_size):
+        else:
+            self.query_weights = SVDDense(d_model, d_model_rank)
+            self.key_weights = SVDDense(d_model, d_model_rank)
+            self.value_weights = SVDDense(d_model, d_model_rank)
+
+            self.dense = SVDDense(d_model, d_model_rank)
+
+    def split_heads(self, x: tf.Tensor, batch_size: int):
         """Split the last dimension into (num_heads, depth).
+
+        Notes
+        -----
         Transpose the result such that the shape is (batch_size, num_heads, seq_len, depth)
+
+        Parameters
+        ----------
+        x: tf.Tensor
+            Input to split
+        batch_size: int
+            Batch size
+
+        Returns
+        -------
+        tf.Tensor:
+            Split inputs
         """
         x = tf.reshape(x, (batch_size, -1, self.num_heads, self.depth))
         return tf.transpose(x, perm=[0, 2, 1, 3])
 
-    def __call__(self, values, keys, queries, mask):
+    def __call__(self, values: tf.Tensor, keys: tf.Tensor, queries: tf.Tensor, mask: tf.Tensor):
+        """Call multi-head attention layer.
+
+        Parameters
+        ----------
+        values: tf.Tensor
+            Values for attention
+        keys: tf.Tensor
+            Keys for attention
+        queries: tf.Tensor
+            Queries for tensor
+        mask: tf.Tensor
+            Masking tensor
+        Returns
+        -------
+        tf.Tensor, tf.Tensor
+            Attended values & attention weights
+        """
+        # Batch size
         batch_size = tf.shape(queries)[0]
 
         queries = self.query_weights(queries)  # (batch_size, seq_len, d_model)
@@ -170,74 +225,222 @@ class MultiHeadAttention(tf.keras.models.Model):
 
 
 class AttentionBlock(tf.keras.models.Model):
-    def __init__(self, d_model: int, num_heads: int, rate):
+    """Attention block."""
+    def __init__(self, d_model: int, d_model_rank: Optional[int], num_heads: int, rate):
+        """Initialize attention block
+
+        Parameters
+        ----------
+        d_model: int
+            Model depth
+        d_model_rank: Optional[int]
+            Rank of SVD approximation.
+            If None regular matrices are used.
+        num_heads: int
+            Number of attention heads
+        rate: float
+            Dropout rate
+        """
         super(AttentionBlock, self).__init__()
-        self.attention = MultiHeadAttention(d_model, num_heads)
+        # MHA
+        self.attention = MultiHeadAttention(d_model, d_model_rank, num_heads)
+        # Dropout
         self.dropout = tf.keras.layers.Dropout(rate)
+        # Layer normalization
         self.normalization = tf.keras.layers.LayerNormalization(epsilon=1e-6)
 
     def __call__(self, values, keys, queries, look_ahead_mask, training):
+        """Call attention block.
+
+        Parameters
+        ----------
+        values: tf.Tensor
+            Values for attention
+        keys: tf.Tensor
+            Keys for attention
+        queries: tf.Tensor
+            Queries for tensor
+        look_ahead_mask: tf.Tensor
+            Masking tensor
+        training: bool
+            Training indicator
+        Returns
+        -------
+        tf.Tensor, tf.Tensor
+            Outputs & weights
+        """
+        # Attention
         outputs, weights = self.attention(values, keys, queries, look_ahead_mask)
+        # Dropout
         outputs = self.dropout(outputs, training=training)
+        # Normalization
         outputs = self.normalization(queries + outputs)
         return outputs, weights
 
 
-class DecoderLayer(tf.keras.models.Model):
-    def __init__(self, d_model, num_heads, dff, rate: float = 0.1):
-        super(DecoderLayer, self).__init__()
-        self.attention_block_one = AttentionBlock(d_model, num_heads, rate)
-        self.attention_block_two = AttentionBlock(d_model, num_heads, rate)
+class PointWiseFeedForward(tf.keras.models.Model):
+    def __init__(self, d_model, d_model_rank, width, width_rank, activation: str = 'relu'):
+        super(PointWiseFeedForward, self).__init__()
+        # (batch_size, seq_len, dff)
+        if width_rank is None:
+            self.dense = tf.keras.layers.Dense(width, activation=activation)
+        else:
+            self.dense = SVDDense(width, width_rank, activation=activation)
+        # (batch_size, seq_len, d_model)
+        if d_model_rank is None:
+            self.linear = tf.keras.layers.Dense(d_model)
+        else:
+            self.linear = SVDDense(d_model, d_model_rank, activation='linear')
 
-        self.final_feedforward = PointWiseFeedForward(d_model, dff)
+    def __call__(self, inputs):
+        """Call point wise feedforward layer.
+
+        Parameters
+        ----------
+        inputs: tf.Tensor
+            Inputs
+        Returns
+        -------
+        tf.Tensor:
+            Outputs
+        """
+        inputs = self.dense(inputs)
+        return self.linear(inputs)
+
+
+class DecoderLayer(tf.keras.models.Model):
+    """Decoder layer."""
+    def __init__(self, d_model: int, d_model_rank: Optional[int], num_heads: int,
+                 dff: int, dff_rank: Optional[int], rate: float = 0.1):
+        """Initialize decoder layer.
+
+        Parameters
+        ----------
+        d_model: int
+            Model depth
+        d_model_rank: Optional[int]
+            Model depth rank. If None regular layers are used otherwise SVD layer.
+        num_heads: int
+            Number of attention heads
+        dff: int
+            Width for point wise feedforward
+        dff_rank: Optional[int]
+            Width rank for point wise feedforward. Idem as d_model_rank.
+        rate: float
+            Dropout rate
+            (default is 0.1)
+        """
+        super(DecoderLayer, self).__init__()
+        self.attention_block_one = AttentionBlock(d_model, d_model_rank, num_heads, rate)
+        self.attention_block_two = AttentionBlock(d_model, d_model_rank, num_heads, rate)
+
+        self.final_feedforward = PointWiseFeedForward(d_model, d_model_rank, dff, dff_rank)
         self.final_normalization = tf.keras.layers.LayerNormalization(epsilon=1e-6)
         self.final_dropout = tf.keras.layers.Dropout(rate)
 
     def __call__(self, inputs, encoder_output, training, look_ahead_mask, padding_mask):
+        """Call decoder layer.
+
+        Parameters
+        ----------
+        inputs: tf.Tensor
+            Inputs
+        encoder_output: tf.Tensor
+            Encoder output
+        training: bool
+            Training indicator
+        look_ahead_mask: tf.Tensor
+            Look ahead mask
+        padding_mask: tf.Tensor
+            Padding mask
+
+        Returns
+        -------
+        tf.Tensor, dict:
+            Outputs & attention weights in dictionary
+        """
+        # Initialize weights
         attention_weights = {}
 
+        # Attention block one
         inputs, weights = self.attention_block_one(
             inputs, inputs, inputs,
             look_ahead_mask, training)
+        # Store block one weights
         attention_weights['block_one'] = weights
+        # Attention block two
         inputs, weights = self.attention_block_two(
             encoder_output, encoder_output, inputs,
             padding_mask, training)
+        # Store block two weights
         attention_weights['block_two'] = weights
 
+        # Feedforward
         outputs = self.final_feedforward(inputs)  # (batch_size, input_seq_len, d_model)
+        # Dropout
         outputs = self.final_dropout(outputs, training=training)
+        # Normalization
         outputs = self.final_normalization(inputs + outputs)  # (batch_size, input_seq_len, d_model)
         return outputs, attention_weights
 
 
 class EncoderLayer(tf.keras.models.Model):
-    def __init__(self, d_model, num_heads, dff, rate=0.1):
+    def __init__(self, d_model: int, d_model_rank: Optional[int], num_heads: int,
+                 dff: int, dff_rank: Optional[int], rate: float = 0.1):
+        """Initialize decoder layer.
+
+        Parameters
+        ----------
+        d_model: int
+            Model depth
+        d_model_rank: Optional[int]
+            Model depth rank. If None regular layers are used otherwise SVD layer.
+        num_heads: int
+            Number of attention heads
+        dff: int
+            Width for point wise feedforward
+        dff_rank: Optional[int]
+            Width rank for point wise feedforward. Idem as d_model_rank.
+        rate: float
+            Dropout rate
+            (default is 0.1)
+        """
         super(EncoderLayer, self).__init__()
-
-        self.attention_block = AttentionBlock(d_model, num_heads, rate)
-
-        self.final_feedforward = PointWiseFeedForward(d_model, dff)
+        # Attention block
+        self.attention_block = AttentionBlock(d_model, d_model_rank, num_heads, rate)
+        # Feedforward
+        self.final_feedforward = PointWiseFeedForward(d_model, d_model_rank, dff, dff_rank)
+        # Normalization
         self.final_normalization = tf.keras.layers.LayerNormalization(epsilon=1e-6)
+        # Dropout
         self.final_dropout = tf.keras.layers.Dropout(rate)
 
     def __call__(self, inputs, training, mask):
-        inputs, _ = self.attention_block(inputs, inputs, inputs, mask, training)  # (batch_size, input_seq_len, d_model)
+        """Call encoder layer.
 
+        Parameters
+        ----------
+        inputs: tf.Tensor
+            Inputs
+        training: bool
+            Training indicator
+        mask: tf.Tensor
+            Mask
+
+        Returns
+        -------
+        tf.Tensor, tf.Tensor:
+            Outputs, weights
+        """
+        # Attention block
+        # (batch_size, input_seq_len, d_model)
+        inputs, weights = self.attention_block(inputs, inputs, inputs, mask, training)
+
+        # Feedforward
         outputs = self.final_feedforward(inputs)  # (batch_size, input_seq_len, d_model)
+        # Dropout
         outputs = self.final_dropout(outputs, training=training)
+        # Normalization
         outputs = self.final_normalization(inputs + outputs)  # (batch_size, input_seq_len, d_model)
-        return outputs
+        return outputs, weights
 
-
-class PointWiseFeedForward(tf.keras.models.Model):
-    def __init__(self, d_model, width, activation: str = 'relu'):
-        super(PointWiseFeedForward, self).__init__()
-        # (batch_size, seq_len, dff)
-        self.dense = tf.keras.layers.Dense(width, activation=activation)
-        # (batch_size, seq_len, d_model)
-        self.linear = tf.keras.layers.Dense(d_model)
-
-    def __call__(self, inputs):
-        inputs = self.dense(inputs)
-        return self.linear(inputs)
