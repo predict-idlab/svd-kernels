@@ -2,12 +2,20 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="25d09b55-5d6f-48f5-a8f4-caac9276d06d" name="Default Changelist" comment="">
+<<<<<<< HEAD
       <change afterPath="$PROJECT_DIR$/src/logging/__init__.py" afterDir="false" />
       <change afterPath="$PROJECT_DIR$/src/logging/utils" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/layers/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/layers/__init__.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/optimizers/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/optimizers/__init__.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/optimizers/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/optimizers/utils.py" afterDir="false" />
+=======
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/additional/context-aware" beforeDir="false" afterPath="$PROJECT_DIR$/additional/context-aware" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/layers/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/layers/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/models/__init__.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/models/__init__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/models/utils.py" beforeDir="false" afterPath="$PROJECT_DIR$/src/models/utils.py" afterDir="false" />
+>>>>>>> development
     </list>
     <option name="EXCLUDED_CONVERTED_TO_IGNORED" value="true" />
     <option name="SHOW_DIALOG" value="false" />
@@ -35,7 +43,7 @@
     <property name="ASKED_ADD_EXTERNAL_FILES" value="true" />
     <property name="SHARE_PROJECT_CONFIGURATION_FILES" value="true" />
     <property name="WebServerToolWindowFactoryState" value="false" />
-    <property name="last_opened_file_path" value="C:/Program Files/Git/bin/git.exe" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$/../data-analysis-in-health-and-connected-care" />
     <property name="settings.editor.selected.configurable" value="com.jetbrains.python.configuration.PyIntegratedToolsModulesConfigurable" />
   </component>
   <component name="RecentsManager">
@@ -66,6 +74,7 @@
       <option name="presentableId" value="Default" />
       <updated>1618666326704</updated>
       <workItem from="1618666328133" duration="10670000" />
+<<<<<<< HEAD
       <workItem from="1618903564884" duration="3269000" />
       <workItem from="1618923874643" duration="7858000" />
       <workItem from="1618984843118" duration="12442000" />
@@ -73,6 +82,18 @@
       <workItem from="1619167003183" duration="16147000" />
       <workItem from="1619195860680" duration="141000" />
       <workItem from="1619420390048" duration="11759000" />
+=======
+      <workItem from="1619789631217" duration="3193000" />
+      <workItem from="1620024650140" duration="11529000" />
+      <workItem from="1620292865032" duration="4263000" />
+      <workItem from="1620388632686" duration="637000" />
+      <workItem from="1620730482606" duration="1140000" />
+      <workItem from="1620734747893" duration="696000" />
+      <workItem from="1620736681350" duration="70000" />
+      <workItem from="1622021606642" duration="5857000" />
+      <workItem from="1622300824696" duration="2493000" />
+      <workItem from="1622452580221" duration="9797000" />
+>>>>>>> development
     </task>
     <servers />
   </component>

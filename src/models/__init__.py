@@ -2,104 +2,155 @@ from typing import *
 
 import tensorflow as tf
 
-from os.path import join
-from numpy import concatenate, array, delete, split
 from src.layers import EncoderLayer, DecoderLayer, PositionalEncodingLayer
 from .utils import *
 
 
-class SVDFeedForward(tf.keras.models.Model):
-    def __init__(self):
-        """Initialize model."""
-        super(SVDFeedForward, self).__init__()
-
-    def build(self, input_shape):
-        """Build function"""
-        raise NotImplementedError
-
-    def __call__(self, inputs, training):
-        """Call function."""
-        raise NotImplementedError
-
-    def train_step(self, data):
-        """Training step"""
-        # Unpack
-        x, y = data
-        # Get learning rate
-        lr = self.optimizer.learning_rate
-        # Get gradients
-        with tf.GradientTape() as tape:
-            y_pred = self(x, training=True)
-            loss = self.compiled_loss(y, y_pred, regularization_losses=self.losses)
-            trainable_variables = self.trainable_variables
-            gradients = tape.gradient(loss, trainable_variables)
-        # Make gradients and variables zip
-        grads_and_vars = zip(trainable_variables, gradients)
-        # Optimize svd layers
-        for layer in (layer for layer in self.layers if 'svd' in layer.name):
-            # Get layer component names
-            layer_variables = ['/'.join([self.name, layer.name, suffix]) for suffix in ['U:0', 'S:0', 'V:0']]
-            # Get gradients and variables for components
-            (u, s, v), (du, ds, dv) = zip(*[(v, g) for v, g in grads_and_vars if v.name in layer_variables])
-            # Update gradients and variables zip to not contain these layer's components
-            grads_and_vars = [(v, g) for v, g in grads_and_vars if v.name not in layer_variables]
-            # update svd variables
-            update_svd(u, s, v, du, ds, dv, lr, lr, lr)
-        # apply remainder of regular variables
-        self.optimizer.apply_gradients(grads_and_vars)
-
-
 class Encoder(tf.keras.models.Model):
-    def __init__(self, num_layers: int, d_model: int, num_heads: int, dff: int,
-                 input_vocab_size: int, maximum_position_encoding: int, rate: float = 0.1):
+    """Encoder for transformer model."""
+    def __init__(self, num_layers: int, d_model: int, d_model_rank: Optional[int], num_heads: int, dff: int,
+                 dff_rank: Optional[int], input_vocab_size: int, maximum_position_encoding: int, rate: float = 0.1):
+        """
+
+        Parameters
+        ----------
+        num_layers: int
+            Number of encoder layers
+        d_model: int
+            Model depth
+        d_model_rank: Optional[int]
+            Model depth rank. If None regular matrices are used otherwise SVD matrices
+        num_heads: int
+            Number of attention heads
+        dff: int
+            Width of point wise feedforward layer
+        dff_rank: Optional[int]
+            Width rank. Idem as model depth rank.
+        input_vocab_size: int
+            Input vocabulary size
+        maximum_position_encoding: int
+            Maximal positional encoding
+        rate: float
+            Dropout rate
+            (default is 0.1)
+        """
         super(Encoder, self).__init__()
 
         self.d_model = d_model
+        self.d_model_rank = d_model_rank
+        self.dff = dff
+        self.dff_rank = dff_rank
         self.num_layers = num_layers
 
         self.embedding = tf.keras.layers.Embedding(input_vocab_size, d_model)
         self.positional_encoding = PositionalEncodingLayer(maximum_position_encoding, self.d_model)
 
-        self.encoder_layers = [EncoderLayer(d_model, num_heads, dff, rate) for _ in range(num_layers)]
+        self.encoder_layers = [
+            EncoderLayer(d_model, d_model_rank, num_heads, dff,dff_rank,  rate) for _ in range(num_layers)]
 
         self.dropout = tf.keras.layers.Dropout(rate)
 
     def __call__(self, inputs, training, mask):
-        seq_len = tf.shape(inputs)[1]
+        """
+
+        Parameters
+        ----------
+        inputs: tf.Tensor
+            Inputs
+        training: bool
+            Training indicator
+        mask: tf.Tensor
+            Mask
+
+        Returns
+        -------
+        tf.Tensor & dict
+            Outputs & weights
+        """
+        attention_weights = {}
 
         # adding embedding and position encoding.
         inputs = self.embedding(inputs)  # (batch_size, input_seq_len, d_model)
-        inputs = self.positional_encoding(inputs, seq_len)
+        inputs = self.positional_encoding(inputs)
 
         inputs = self.dropout(inputs, training=training)
 
-        for layer in self.encoder_layers:
-            inputs = layer(inputs, training, mask)
+        for i, layer in enumerate(self.encoder_layers):
+            inputs, weights = layer(inputs, training, mask)
+            attention_weights[f'encoder_layer_{i}'] = weights
 
-        return inputs  # (batch_size, input_seq_len, d_model)
+        return inputs, attention_weights # (batch_size, input_seq_len, d_model)
 
 
 class Decoder(tf.keras.models.Model):
-    def __init__(self, num_layers, d_model, num_heads, dff, target_vocab_size,
-                 maximum_position_encoding, rate=0.1):
+    """Decoder for transformer model."""
+    def __init__(self, num_layers, d_model: int, d_model_rank: Optional[int], num_heads: int,
+                 dff: int, dff_rank: Optional[int], target_vocab_size, maximum_position_encoding, rate: float = 0.1):
+        """
+
+        Parameters
+        ----------
+        num_layers: int
+            Number of encoder layers
+        d_model: int
+            Model depth
+        d_model_rank: Optional[int]
+            Model depth rank. If None regular matrices are used otherwise SVD matrices
+        num_heads: int
+            Number of attention heads
+        dff: int
+            Width of point wise feedforward layer
+        dff_rank: Optional[int]
+            Width rank. Idem as model depth rank.
+        target_vocab_size: int
+            Target vocabulary size
+        maximum_position_encoding: int
+            Maximal positional encoding
+        rate: float
+            Dropout rate
+            (default is 0.1)
+        """
         super(Decoder, self).__init__()
 
         self.d_model = d_model
+        self.d_model_rank = d_model_rank
+        self.dff = dff
+        self.dff_rank = dff_rank
         self.num_layers = num_layers
 
         self.embedding = tf.keras.layers.Embedding(target_vocab_size, d_model)
         self.positional_encoding = PositionalEncodingLayer(maximum_position_encoding, d_model)
 
-        self.decoder_layers = [DecoderLayer(d_model, num_heads, dff, rate) for _ in range(num_layers)]
+        self.decoder_layers = [
+            DecoderLayer(d_model, d_model_rank, num_heads, dff, dff_rank, rate) for _ in range(num_layers)]
         self.dropout = tf.keras.layers.Dropout(rate)
 
     def __call__(self, inputs, enc_output, training, look_ahead_mask, padding_mask):
+        """Call decoder.
+
+        Parameters
+        ----------
+        inputs: tf.Tensor
+            Inputs
+        enc_output: tf.Tensor
+            Encoder output
+        training: bool
+            Training indicator
+        look_ahead_mask: tf.Tensor
+            Look ahead mask
+        padding_mask: tf.Tensor
+            Padding mask
+
+        Returns
+        -------
+        tf.Tensor, dict
+            Outputs, weights
+        """
         attention_weights = {}
-        seq_len = tf.shape(inputs)[1]
 
         # adding embedding and position encoding.
         inputs = self.embedding(inputs)  # (batch_size, input_seq_len, d_model)
-        inputs = self.positional_encoding(inputs, seq_len)
+        inputs = self.positional_encoding(inputs)
 
         inputs = self.dropout(inputs, training=training)
 
@@ -113,15 +164,48 @@ class Decoder(tf.keras.models.Model):
 
 
 class Transformer(tf.keras.Model):
-    def __init__(self, num_layers: int, d_model: int, num_heads: int, dff: int,
-                 input_vocab_size: int, target_vocab_size: int, input_maximum_position_encoding: int,
-                 target_maximum_position_encoding: int, rate: float = 0.1):
+    """Sequence to sequence transformer for sequences of integers."""
+    def __init__(self, num_layers: int, d_model: int, num_heads: int, dff: int, input_vocab_size: int,
+                 target_vocab_size: int, input_maximum_position_encoding: int, target_maximum_position_encoding: int,
+                 d_model_rank: Optional[int] = None, dff_rank: Optional[int] = None, rate: float = 0.1):
+        """Transformer model initialization.
+        
+        Parameters
+        ----------
+        num_layers: int
+            number of layers in encoder and decoder
+        d_model: int
+            depth of model
+        num_heads:
+            number of attention heads for MHA
+        dff: int
+            Units for feedforward layers after MHA
+        input_vocab_size: int
+            Input vocabulary size
+        target_vocab_size: int
+            Target vocabulary size
+        input_maximum_position_encoding: int
+            Maximal positional encoding for input
+        target_maximum_position_encoding: int
+            Maximal positional encoding for input
+        d_model_rank: Optional[int]
+            Rank for model depth. If not not SVD layer is used.
+            (default is None)
+        dff_rank: Optional[int]
+            Rank for feedforward layers. If not not SVD layer is used.
+            (default is None)
+        rate: float
+            Dropout rate
+            (default is 0.1)
+        """
         super(Transformer, self).__init__()
 
         self.encoder = Encoder(
-            num_layers, d_model, num_heads, dff, input_vocab_size, input_maximum_position_encoding, rate)
+            num_layers, d_model, d_model_rank, num_heads, dff, dff_rank,
+            input_vocab_size, input_maximum_position_encoding, rate)
         self.decoder = Decoder(
-            num_layers, d_model, num_heads, dff, target_vocab_size, target_maximum_position_encoding, rate)
+            num_layers, d_model, d_model_rank, num_heads, dff, dff_rank,
+            target_vocab_size, target_maximum_position_encoding, rate)
 
         self.input_vocab_size = input_vocab_size
         self.target_vocab_size = target_vocab_size
@@ -130,16 +214,30 @@ class Transformer(tf.keras.Model):
 
     def __call__(self, inputs, targets, training, enc_padding_mask, look_ahead_mask, dec_padding_mask):
         # (batch_size, inp_seq_len, d_model)
-        encoded_inputs = self.encoder(inputs, training, enc_padding_mask)
+        encoded_inputs, encoder_weights = self.encoder(inputs, training, enc_padding_mask)
         # dec_output.shape == (batch_size, tar_seq_len, d_model)
-        decoded_inputs, weights = self.decoder(targets, encoded_inputs, training, look_ahead_mask, dec_padding_mask)
+        decoded_inputs, decoder_weights = self.decoder(targets, encoded_inputs, training, look_ahead_mask, dec_padding_mask)
         # (batch_size, tar_seq_len, target_vocab_size)
         final_output = self.final_layer(decoded_inputs)
 
-        return final_output, weights
+        return final_output, {'encoder': encoder_weights, 'decoder': decoder_weights}
 
     @staticmethod
-    def create_masks(inp, tar):
+    def create_masks(inp: tf.Tensor, tar: tf.Tensor):
+        """Create masks for transformer.
+
+        Parameters
+        ----------
+        inp: tf.Tensor
+            Inputs
+        tar: tf.Tensor
+            Targets
+
+        Returns
+        -------
+        tf.Tensor, tf.Tensor, tf.Tensor:
+            Encoder padding mask, Combined mask, Decoder padding mask
+        """
         # Encoder padding mask
         enc_padding_mask = create_padding_mask(inp)
 
@@ -150,32 +248,73 @@ class Transformer(tf.keras.Model):
         # Used in the 1st attention block in the decoder.
         # It is used to pad and mask future tokens in the input received by
         # the decoder.
-        look_ahead_mask = create_look_ahead_mask(tf.shape(tar)[1])
+        seq_len = tf.shape(tar)[1]
+        look_ahead_mask = create_look_ahead_mask(seq_len)
         dec_target_padding_mask = create_padding_mask(tar)
         combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
 
         return enc_padding_mask, combined_mask, dec_padding_mask
+    
+    def train_step(self, data: tuple):
+        """Train step for transformer.
 
-    def train_step(self, inputs, targets):
+        Parameters
+        ----------
+        inputs: tf.Tensor
+            Inputs
+        Targets: tf.Tensor
+            Targets
+
+        Notes
+        -----
+        Calls loss function and uses optimizer so SVD compatible
+        """
+        inputs, targets = data
+        # Shift targets for input and prediction
         targets_input = targets[:, :-1]
         targets_real = targets[:, 1:]
 
+        # Create masks
         enc_padding_mask, combined_mask, dec_padding_mask = self.create_masks(inputs, targets_input)
 
+        # Get loss & gradients
         with tf.GradientTape() as tape:
             predictions, _ = self(inputs, targets_input, True, enc_padding_mask, combined_mask, dec_padding_mask)
             loss = self.compiled_loss(targets_real, predictions)
 
             gradients = tape.gradient(loss, self.trainable_variables)
-            self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-        self.epoch_loss.update_state(loss)
 
-    def train(self, train_data, epochs, verbose: bool = True, save_ckpt: int = 5, ckpt_path: Optional[str] = None):
+        # apply gradients and update loss state
+        self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
+        # Update metrics (includes the metric that tracks the loss)
+        self.compiled_metrics.update_state(targets_real, predictions)
+        # Return a dict mapping metric names to current value
+        return {m.name: m.result() for m in self.metrics}
+
+    def train(self, train_data: Iterable, epochs: int, verbose: bool = True,
+              save_ckpt: int = 5, ckpt_path: Optional[str] = None):
+        """Train function.
+
+        Parameters
+        ----------
+        train_data: tf.data.Dataset[tf.Tensor, tf.Tensor]
+            Dataset with sequences
+        epochs: int
+            number of epochs
+        verbose: bool
+            Verbose parameter for training
+        save_ckpt: int
+            Amount of checkpoints to be saved
+        ckpt_path: Optional[str]
+            Checkpoint path. If None no saving is done.
+            (default is None)
+        """
         # Checkpoints manager
         if ckpt_path is not None:
             _ckpt = tf.train.Checkpoint(transformer=self, optimizer=self.optimizer)
             _ckpt_manager = tf.train.CheckpointManager(_ckpt, ckpt_path, max_to_keep=5)
 
+        # Initialize loss state
         self.epoch_loss = tf.keras.metrics.Mean()
 
         # Training
@@ -189,14 +328,24 @@ class Transformer(tf.keras.Model):
 
             if verbose:
                 print(f'Epoch {epoch}, Loss: {self.epoch_loss.result()}')
-            #                 print(f'Epoch {epoch}, train metrics: {train_metrics:.4f}' + ', '.join(['train_metrics']))
-            #                 print(f'Epoch {epoch}, validation metrics: {validation_metrics:.4f}' + ', '.join(['validation_metrics']))
+            # print(f'Epoch {epoch}, train metrics: {train_metrics:.4f}' + ', '.join(['train_metrics']))
+            # print(f'Epoch {epoch}, validation metrics: {validation_metrics:.4f}' + ', '.join(['validation_metrics']))
 
             if ((epoch + 1) % save_ckpt == 0) & (ckpt_path is not None):
                 ckpt_save_path = _ckpt_manager.save()
                 print('Saving checkpoint for epoch {} at {}'.format(epoch + 1, ckpt_save_path))
 
     def restore(self, ckpt_path):
+        """
+
+        Parameters
+        ----------
+        ckpt_path
+
+        Returns
+        -------
+
+        """
         _ckpt = tf.train.Checkpoint(transformer=self, optimizer=self.optimizer)
         _ckpt_manager = tf.train.CheckpointManager(_ckpt, ckpt_path, max_to_keep=5)
         # if a checkpoint exists, restore the latest checkpoint.
@@ -205,12 +354,37 @@ class Transformer(tf.keras.Model):
             print('Latest checkpoint restored!!')
 
     def predict(self, data, max_length: int = 40, return_weights: bool = False):
+        """
+
+        Parameters
+        ----------
+        data
+        max_length
+        return_weights
+
+        Returns
+        -------
+
+        """
         # Iterate over batches
         for encoder_input in data:
             output = self.predict_batch(encoder_input, max_length, return_weights)
             yield output
 
     def predict_batch(self, encoder_input, max_length: int = 40, return_weights: bool = False, start_tokens=None):
+        """
+
+        Parameters
+        ----------
+        encoder_input
+        max_length
+        return_weights
+        start_tokens
+
+        Returns
+        -------
+
+        """
         # Batch size and all indices
         batch_size = encoder_input.shape[0]
         indices = tf.range(batch_size)
