@@ -1,6 +1,6 @@
 import tensorflow as tf
 from src.callbacks.utils import orthogonality_number, conditioning_number
-
+from src.models.utils import unpack
 
 class DecompositionTracker(tf.keras.callbacks.Callback):
     """Track SVD decomposition conditioning and orthogonality of dense layers."""
@@ -28,14 +28,14 @@ class DecompositionTracker(tf.keras.callbacks.Callback):
                 's': [],
                 'v': []
             }
-            for layer in self.model.layers if 'dense' in layer.name
+            for _, layer in unpack([self.model]) if 'dense' in layer.name
         }
 
     def on_epoch_end(self, epoch, logs=None):
         """Add orthogonality per dense layer at end of epoch"""
-        for layer in self.model.layers:
+        for _, layer in unpack([self.model]):
             if 'dense' in layer.name:
-                u, s, v = tf.linalg.svd(layer.variables[0])
+                s, u, v = tf.linalg.svd(layer.variables[0], full_matrices=True, compute_uv=True)
                 self.kappa[layer.name]['u'].append(orthogonality_number(u))
                 self.kappa[layer.name]['s'].append(conditioning_number(s))
                 self.kappa[layer.name]['v'].append(orthogonality_number(v))
@@ -45,9 +45,9 @@ class DecompositionTracker(tf.keras.callbacks.Callback):
         if not self.on_batch:
             pass
         else:
-            for layer in self.model.layers:
+            for _, layer in unpack([self.model]):
                 if 'dense' in layer.name:
-                    u, s, v = tf.linalg.svd(layer.variables[0])
+                    s, u, v = tf.linalg.svd(layer.variables[0], full_matrices=True, compute_uv=True)
                     self.kappa[layer.name]['u'].append(orthogonality_number(u))
                     self.kappa[layer.name]['s'].append(conditioning_number(s))
                     self.kappa[layer.name]['v'].append(orthogonality_number(v))
@@ -78,12 +78,12 @@ class OrthogonalityTracker(tf.keras.callbacks.Callback):
                 'u': [],
                 'v': []
             }
-            for layer in self.model.layers if 'svd' in layer.name
+            for _, layer in unpack([self.model]) if 'svd' in layer.name
         }
 
     def on_epoch_end(self, epoch, logs=None):
         """Add orthogonality per SVD layer at end of epoch"""
-        for layer in self.model.layers:
+        for _, layer in unpack([self.model]):
             if 'svd' in layer.name:
                 self.kappa[layer.name]['u'].append(orthogonality_number(layer.variables[0]))
                 self.kappa[layer.name]['v'].append(orthogonality_number(layer.variables[2]))
@@ -93,7 +93,7 @@ class OrthogonalityTracker(tf.keras.callbacks.Callback):
         if not self.on_batch:
             pass
         else:
-            for layer in self.model.layers:
+            for _, layer in unpack([self.model]):
                 if 'svd' in layer.name:
                     self.kappa[layer.name]['u'].append(orthogonality_number(layer.variables[0]))
                     self.kappa[layer.name]['v'].append(orthogonality_number(layer.variables[2]))
@@ -121,12 +121,12 @@ class ConditioningTracker(tf.keras.callbacks.Callback):
         # Initialize orthogonality for each SVD layer
         self.kappa = {
             layer.name: []
-            for layer in self.model.layers if 'svd' in layer.name
+            for _, layer in unpack([self.model]) if 'svd' in layer.name
         }
 
     def on_epoch_end(self, epoch, logs=None):
         """Add conditioning number per SVD layer at end of epoch"""
-        for layer in self.model.layers:
+        for _, layer in unpack([self.model]):
             if 'svd' in layer.name:
                 self.kappa[layer.name].append(conditioning_number(layer.variables[1]))
 
@@ -135,6 +135,6 @@ class ConditioningTracker(tf.keras.callbacks.Callback):
         if not self.on_batch:
             pass
         else:
-            for layer in self.model.layers:
+            for _, layer in unpack([self.model]):
                 if 'svd' in layer.name:
                     self.kappa[layer.name].append(conditioning_number(layer.variables[1]))

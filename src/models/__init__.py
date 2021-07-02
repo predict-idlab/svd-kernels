@@ -214,13 +214,13 @@ class Transformer(tf.keras.Model):
 
     def __call__(self, inputs, targets, training, enc_padding_mask, look_ahead_mask, dec_padding_mask):
         # (batch_size, inp_seq_len, d_model)
-        encoded_inputs = self.encoder(inputs, training, enc_padding_mask)
+        encoded_inputs, encoder_weights = self.encoder(inputs, training, enc_padding_mask)
         # dec_output.shape == (batch_size, tar_seq_len, d_model)
-        decoded_inputs, weights = self.decoder(targets, encoded_inputs, training, look_ahead_mask, dec_padding_mask)
+        decoded_inputs, decoder_weights = self.decoder(targets, encoded_inputs, training, look_ahead_mask, dec_padding_mask)
         # (batch_size, tar_seq_len, target_vocab_size)
         final_output = self.final_layer(decoded_inputs)
 
-        return final_output, weights
+        return final_output, {'encoder': encoder_weights, 'decoder': decoder_weights}
 
     @staticmethod
     def create_masks(inp: tf.Tensor, tar: tf.Tensor):
@@ -248,26 +248,28 @@ class Transformer(tf.keras.Model):
         # Used in the 1st attention block in the decoder.
         # It is used to pad and mask future tokens in the input received by
         # the decoder.
-        look_ahead_mask = create_look_ahead_mask(tf.shape(tar)[1])
+        seq_len = tf.shape(tar)[1]
+        look_ahead_mask = create_look_ahead_mask(seq_len)
         dec_target_padding_mask = create_padding_mask(tar)
         combined_mask = tf.maximum(dec_target_padding_mask, look_ahead_mask)
 
         return enc_padding_mask, combined_mask, dec_padding_mask
-
-    def train_step(self, inputs: tf.Tensor, targets: tf.Tensor):
+    
+    def train_step(self, data: tuple):
         """Train step for transformer.
 
         Parameters
         ----------
         inputs: tf.Tensor
-            Input tensor
-        targets: tf.Tensor
-            Target tensor
+            Inputs
+        Targets: tf.Tensor
+            Targets
 
         Notes
         -----
         Calls loss function and uses optimizer so SVD compatible
         """
+        inputs, targets = data
         # Shift targets for input and prediction
         targets_input = targets[:, :-1]
         targets_real = targets[:, 1:]
@@ -284,15 +286,18 @@ class Transformer(tf.keras.Model):
 
         # apply gradients and update loss state
         self.optimizer.apply_gradients(zip(gradients, self.trainable_variables))
-        self.epoch_loss.update_state(loss)
+        # Update metrics (includes the metric that tracks the loss)
+        self.compiled_metrics.update_state(targets_real, predictions)
+        # Return a dict mapping metric names to current value
+        return {m.name: m.result() for m in self.metrics}
 
-    def train(self, train_data: tf.Dataset[tf.Tensor, tf.Tensor], epochs: int, verbose: bool = True,
+    def train(self, train_data: Iterable, epochs: int, verbose: bool = True,
               save_ckpt: int = 5, ckpt_path: Optional[str] = None):
         """Train function.
 
         Parameters
         ----------
-        train_data: tf.Dataset[tf.Tensor, tf.Tensor]
+        train_data: tf.data.Dataset[tf.Tensor, tf.Tensor]
             Dataset with sequences
         epochs: int
             number of epochs

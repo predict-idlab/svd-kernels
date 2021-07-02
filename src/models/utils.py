@@ -1,5 +1,6 @@
 import tensorflow as tf
 from os.path import join
+import numpy as np
 
 def create_padding_mask(seq):
     seq = tf.cast(tf.math.equal(seq, 0), tf.float32)
@@ -9,9 +10,20 @@ def create_padding_mask(seq):
     return seq[:, tf.newaxis, tf.newaxis, :]  # (batch_size, 1, 1, seq_len)
 
 
+def numpy_look_ahead(size):
+    mask = 1.0 - np.triu(np.ones((size, size)), 0)
+    return mask.astype(np.float32)
+
+@tf.function
 def create_look_ahead_mask(size):
-    mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
-    return mask  # (seq_len, seq_len)
+    mask = tf.numpy_function(numpy_look_ahead, [size], tf.float32)
+    return mask
+
+##  Doesn't work because numpy calculation in backend
+## https://github.com/tensorflow/models/issues/9706#issuecomment-791113516
+# def create_look_ahead_mask(size):
+#     mask = 1 - tf.linalg.band_part(tf.ones((size, size)), -1, 0)
+#     return mask  # (seq_len, seq_len)
 
 
 def unpack(packed):

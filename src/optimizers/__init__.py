@@ -1,6 +1,6 @@
 from typing import *
 
-from src.optimizers.utils import update_svd
+from src.optimizers.utils import update_svd, unpack
 
 import tensorflow as tf
 
@@ -50,7 +50,7 @@ class SVDAdam(tf.keras.optimizers.Optimizer):
         self.method = method
         self.epsilon = 10e-8
         # Unpack model
-        self.names = [var.name for name, layer in unpack([self.model]) for var in layer.variables]
+        self.names = [var.name for name, layer in unpack([self.model]) for var in layer.trainable_variables]
         # Indices of svd variables
         self.slices = [
             slice(idx, idx + 3) for idx, name in enumerate(self.names) if ('svd' in name) & ('U' in name)]
@@ -116,7 +116,7 @@ class SVDAdam(tf.keras.optimizers.Optimizer):
             Gradients and variables with updated gradients
         """
         # Get list of all variable indices
-        indices = list(range(len(list(grads_and_vars))))
+        indices = list(range(len(self.names)))
         # Calculate SVD variables per layer
         for idx in self.slices:
             # Get gradients and variables for components
@@ -138,7 +138,7 @@ class SVDAdam(tf.keras.optimizers.Optimizer):
                 grad = self._apply_adam(grad, var)
                 # Scale with learning rate
                 grads_and_vars[idx] = (-self.learning_rate * grad, var)
-        return grads_and_vars
+        return [(tf.where(tf.math.is_nan(grad), tf.zeros_like(grad) , grad), var) for grad, var in grads_and_vars]
 
     def _resource_apply_dense(self, grad: tf.Tensor, handle: tf.Variable, apply_state: dict):
         """Application of gradients for dense tensors.
@@ -271,7 +271,7 @@ class SVDSGD(tf.keras.optimizers.Optimizer):
 
         Returns
         -------
-        Updated gradient corresponding to Adam application.
+        Updated gradient corresponding to SGD application.
         """
         # Get slots
         momentum = self.get_slot(var, "momentum")
@@ -319,7 +319,7 @@ class SVDSGD(tf.keras.optimizers.Optimizer):
                 grad = self._apply_momentum(grad, var)
                 # Scale with learning rate
                 grads_and_vars[idx] = (-self.learning_rate * grad, var)
-        return grads_and_vars
+        return [(tf.where(tf.math.is_nan(grad), tf.zeros_like(grad) , grad), var) for grad, var in grads_and_vars]
 
     def _resource_apply_dense(self, grad: tf.Tensor, handle: tf.Variable, apply_state: dict):
         """Application of gradients for dense tensors.
@@ -382,9 +382,6 @@ class SVDSGD(tf.keras.optimizers.Optimizer):
 
 import numpy as np
 import tqdm
-
-from src.models.utils import unpack, chi, assembled_gradient
-
 
 class SVDOptimizer:
     """Optimizer function for SVD based architectures"""

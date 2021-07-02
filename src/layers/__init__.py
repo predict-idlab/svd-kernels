@@ -53,9 +53,9 @@ class SVDDense(tf.keras.layers.Layer):
         s_initializer = SingularValueInitializer(input_shape[-1], self.units)
         z_initializer = tf.keras.initializers.get('Zeros')
         # define variables
-        self._u = self.add_weight("U", shape=u_shape, dtype=tf.float32, initializer=o_initializer)
-        self._s = self.add_weight("S", shape=s_shape, dtype=tf.float32, initializer=s_initializer)
-        self._v = self.add_weight("V", shape=v_shape, dtype=tf.float32, initializer=o_initializer)
+        self._u = self.add_weight("U", shape=u_shape, dtype=tf.float32, initializer=o_initializer, aggregation=tf.VariableAggregation.NONE)
+        self._s = self.add_weight("S", shape=s_shape, dtype=tf.float32, initializer=s_initializer, aggregation=tf.VariableAggregation.NONE)
+        self._v = self.add_weight("V", shape=v_shape, dtype=tf.float32, initializer=o_initializer, aggregation=tf.VariableAggregation.NONE)
         if self.use_bias:
             self._bias = self.add_weight("bias", shape=bias_shape, dtype=tf.float32, initializer=z_initializer)
 
