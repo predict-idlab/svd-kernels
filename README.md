@@ -42,4 +42,3 @@ model.fit(data, ...)
 ```
 
 More detailed examples, corresponding to the experiment section in the paper, can be found in the notebooks directory.
-# License
